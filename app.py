@@ -16,17 +16,56 @@ def setup_database():
     conn = sqlite3.connect('image_analysis.db')
     c = conn.cursor()
     
-    # Create the images table with the new schema
-    c.execute('''CREATE TABLE IF NOT EXISTS images
-                 (id INTEGER PRIMARY KEY,
-                  image_hash TEXT NOT NULL UNIQUE,
-                  make TEXT NOT NULL,
-                  model TEXT NOT NULL,
-                  datetime TEXT NOT NULL,
-                  gps_latitude TEXT,
-                  gps_longitude TEXT,
-                  analysis TEXT NOT NULL,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    # Check if the images table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='images'")
+    table_exists = c.fetchone()
+    
+    if not table_exists:
+        # If the table doesn't exist, create it with the new schema
+        c.execute('''CREATE TABLE images
+                     (id INTEGER PRIMARY KEY,
+                      image_hash TEXT NOT NULL UNIQUE,
+                      make TEXT NOT NULL,
+                      model TEXT NOT NULL,
+                      datetime TEXT NOT NULL,
+                      gps_latitude TEXT,
+                      gps_longitude TEXT,
+                      analysis TEXT NOT NULL,
+                      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    else:
+        # If the table exists, check if it needs to be migrated
+        c.execute("PRAGMA table_info(images)")
+        columns = [column[1] for column in c.fetchall()]
+        
+        if 'make' not in columns:
+            # Perform migration
+            c.execute('''CREATE TABLE images_new
+                         (id INTEGER PRIMARY KEY,
+                          image_hash TEXT NOT NULL UNIQUE,
+                          make TEXT NOT NULL,
+                          model TEXT NOT NULL,
+                          datetime TEXT NOT NULL,
+                          gps_latitude TEXT,
+                          gps_longitude TEXT,
+                          analysis TEXT NOT NULL,
+                          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            
+            # Copy data from the old table to the new table
+            c.execute('''INSERT INTO images_new (image_hash, make, model, datetime, gps_latitude, gps_longitude, analysis)
+                         SELECT image_hash, 
+                                'Unknown' as make, 
+                                'Unknown' as model, 
+                                'Unknown' as datetime, 
+                                'Unknown' as gps_latitude, 
+                                'Unknown' as gps_longitude, 
+                                analysis 
+                         FROM images''')
+            
+            # Drop the old table and rename the new one
+            c.execute("DROP TABLE images")
+            c.execute("ALTER TABLE images_new RENAME TO images")
+            
+            st.success("Database schema has been updated successfully!")
     
     # Create an index on the image_hash column
     c.execute('CREATE INDEX IF NOT EXISTS idx_image_hash ON images(image_hash)')
@@ -79,12 +118,12 @@ def analyze_image_with_claude(image_base64, metadata):
     - Date taken: {metadata['datetime']}
     - GPS coordinates: {metadata['gps_latitude']}, {metadata['gps_longitude']}
 
-    Provide a comprehensive analysis in about 100-500 words.
+    Provide a comprehensive analysis in about 100-300 words.
     """
 
     response = anthropic_client.messages.create(
         model="claude-3-5-sonnet-20240620",
-        max_tokens=500,
+        max_tokens=350,
         messages=[
             {
                 "role": "user",
