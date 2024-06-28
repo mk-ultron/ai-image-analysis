@@ -9,3 +9,4 @@ exif
 tempfile
 os
 hashlib
+requests
