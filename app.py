@@ -16,18 +16,20 @@ def setup_database():
     conn = sqlite3.connect('image_analysis.db')
     c = conn.cursor()
     
-    # Create the images table if it doesn't exist
+    # Create the images table with the new schema
     c.execute('''CREATE TABLE IF NOT EXISTS images
-                 (id INTEGER PRIMARY KEY, image_hash TEXT, metadata TEXT, analysis TEXT)''')
+                 (id INTEGER PRIMARY KEY,
+                  image_hash TEXT NOT NULL UNIQUE,
+                  make TEXT NOT NULL,
+                  model TEXT NOT NULL,
+                  datetime TEXT NOT NULL,
+                  gps_latitude TEXT,
+                  gps_longitude TEXT,
+                  analysis TEXT NOT NULL,
+                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     
-    # Check if the image_hash column exists
-    c.execute("PRAGMA table_info(images)")
-    columns = [column[1] for column in c.fetchall()]
-    
-    if 'image_hash' not in columns:
-        # Add the image_hash column
-        c.execute("ALTER TABLE images ADD COLUMN image_hash TEXT")
-        st.success("Database schema updated successfully!")
+    # Create an index on the image_hash column
+    c.execute('CREATE INDEX IF NOT EXISTS idx_image_hash ON images(image_hash)')
     
     conn.commit()
     return conn, c
@@ -50,8 +52,8 @@ def extract_metadata(image_bytes):
             "make": img.get("make", "Unknown"),
             "model": img.get("model", "Unknown"),
             "datetime": img.get("datetime", "Unknown"),
-            "gps_latitude": img.get("gps_latitude", "Unknown"),
-            "gps_longitude": img.get("gps_longitude", "Unknown"),
+            "gps_latitude": str(img.get("gps_latitude", "Unknown")),
+            "gps_longitude": str(img.get("gps_longitude", "Unknown")),
         }
     except Exception as e:
         metadata = {
@@ -69,10 +71,8 @@ def analyze_image_with_claude(image_base64, metadata):
     Consider the following aspects:
     1. Main subject(s) of the image
     2. Any pop culture references or recognizable figures?
-    3. What text is visible in the image, and what can you infer about the image from it? 
-    4. Composition and framing 
-    5. Colors and overall mood 
-    6. What is the style of the image (e.g., realism, abstract, impressionism)
+    3. What text is visible in the image, and what can you infer about the image from it? In 1-2 sentences, describe what do you know about what the text might represent. 
+    4. What is the style of the image (e.g., realism, abstract, impressionism, colors and overall mood)
 
     Additional context from metadata:
     - Camera: {metadata['make']} {metadata['model']}
@@ -83,8 +83,8 @@ def analyze_image_with_claude(image_base64, metadata):
     """
 
     response = anthropic_client.messages.create(
-        model="claude-3-sonnet-20240229",
-        max_tokens=300,
+        model="claude-3-5-sonnet-20240620",
+        max_tokens=500,
         messages=[
             {
                 "role": "user",
@@ -150,7 +150,8 @@ def display_analysis_card(image, analysis, image_hash):
         st.image(image, use_column_width=True)
     with col2:
         st.write(analysis)
-        if st.button(f"Play Analysis for {image_hash[:8]}", key=f"play_{image_hash}"):
+        play_button_key = f"play_{image_hash}"
+        if st.button(f"Play Analysis", key=play_button_key):
             with st.spinner("Generating audio..."):
                 try:
                     audio_file_path = text_to_speech(analysis)
@@ -165,6 +166,63 @@ def load_image_from_url(url):
     response = requests.get(url)
     image = Image.open(io.BytesIO(response.content))
     return image
+
+def get_analysis_by_hash(image_hash):
+    c.execute("SELECT analysis FROM images WHERE image_hash = ?", (image_hash,))
+    result = c.fetchone()
+    return result[0] if result else None
+
+def insert_analysis(image_hash, metadata, analysis):
+    c.execute("""
+        INSERT INTO images (image_hash, make, model, datetime, gps_latitude, gps_longitude, analysis)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        image_hash,
+        metadata['make'],
+        metadata['model'],
+        metadata['datetime'],
+        metadata['gps_latitude'],
+        metadata['gps_longitude'],
+        analysis
+    ))
+    conn.commit()
+
+def get_or_create_analysis(image_hash, metadata, image_base64):
+    existing_analysis = get_analysis_by_hash(image_hash)
+    if existing_analysis:
+        return existing_analysis
+    
+    analysis = analyze_image_with_claude(image_base64, metadata)
+    insert_analysis(image_hash, metadata, analysis)
+    return analysis
+
+def process_image(image, source_type):
+    resized_image = resize_image(image)
+    
+    image_bytes = io.BytesIO()
+    resized_image.save(image_bytes, format="JPEG")
+    image_bytes = image_bytes.getvalue()
+    image_hash = get_image_hash(image_bytes)
+
+    st.image(resized_image, caption='Processed Image (Resized)', use_column_width=True)
+
+    button_key = f"analyze_{source_type}_{image_hash}"
+
+    if st.button("Analyze Image", key=button_key):
+        with st.spinner("Analyzing image..."):
+            metadata = extract_metadata(image_bytes)
+            img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            
+            analysis = get_or_create_analysis(image_hash, metadata, img_base64)
+
+            st.session_state.analyzed_images.insert(0, {
+                'image': resized_image,
+                'analysis': analysis,
+                'image_hash': image_hash
+            })
+
+            st.success("Analysis complete!")
+            st.write(analysis)
 
 def main():
     # Set page configuration
@@ -183,49 +241,19 @@ def main():
         uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
         if uploaded_file is not None:
             image = Image.open(uploaded_file)
-            process_image(image)
+            process_image(image, "upload")
 
     with tab2:
         url = st.text_input("Enter the URL of an image:")
         if url:
             try:
                 image = load_image_from_url(url)
-                process_image(image)
+                process_image(image, "url")
             except Exception as e:
                 st.error(f"Error loading image from URL: {str(e)}")
 
-    # Display all analyzed images
     for data in st.session_state.analyzed_images:
         display_analysis_card(data['image'], data['analysis'], data['image_hash'])
-
-def process_image(image):
-    resized_image = resize_image(image)
-    
-    # Get image hash
-    image_bytes = io.BytesIO()
-    resized_image.save(image_bytes, format="JPEG")
-    image_bytes = image_bytes.getvalue()
-    image_hash = get_image_hash(image_bytes)
-
-    st.image(resized_image, caption='Processed Image (Resized)', use_column_width=True)
-
-    if st.button("Analyze Image"):
-        with st.spinner("Analyzing image..."):
-            metadata = extract_metadata(image_bytes)
-            img_base64 = base64.b64encode(image_bytes).decode('utf-8')
-            analysis = analyze_image_with_claude(img_base64, metadata)
-
-            # Save to session state
-            st.session_state.analyzed_images.insert(0, {
-                'image': resized_image,
-                'analysis': analysis,
-                'image_hash': image_hash
-            })
-
-            # Save to database
-            c.execute("INSERT INTO images (image_hash, metadata, analysis) VALUES (?, ?, ?)",
-                      (image_hash, str(metadata), analysis))
-            conn.commit()
 
 if __name__ == "__main__":
     main()
