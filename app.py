@@ -126,12 +126,12 @@ def analyze_image_with_claude(image_base64, metadata):
     - Date taken: {metadata['datetime']}
     - GPS coordinates: {metadata['gps_latitude']}, {metadata['gps_longitude']}
 
-    Provide a comprehensive analysis in about 100-300 words.
+    Provide a comprehensive analysis in 100-300 words.
     """
 
     response = anthropic_client.messages.create(
         model="claude-3-5-sonnet-20240620",
-        max_tokens=350,
+        max_tokens=450,
         messages=[
             {
                 "role": "user",
