@@ -72,15 +72,14 @@ def analyze_image_with_claude(image_base64, metadata):
     3. What text is visible in the image, and what can you infer about the image from it? 
     4. Composition and framing 
     5. Colors and overall mood 
-    6. Notable objects or background elements
-    7. What is the style of the image (e.g., realism, abstract, impressionism)
+    6. What is the style of the image (e.g., realism, abstract, impressionism)
 
     Additional context from metadata:
     - Camera: {metadata['make']} {metadata['model']}
     - Date taken: {metadata['datetime']}
     - GPS coordinates: {metadata['gps_latitude']}, {metadata['gps_longitude']}
 
-    Provide a comprehensive analysis in about 100-300 words.
+    Provide a comprehensive analysis in about 100-500 words.
     """
 
     response = anthropic_client.messages.create(
