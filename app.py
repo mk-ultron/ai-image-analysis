@@ -15,6 +15,10 @@ def setup_database():
     conn = sqlite3.connect('image_analysis.db')
     c = conn.cursor()
     
+    # Create the images table if it doesn't exist
+    c.execute('''CREATE TABLE IF NOT EXISTS images
+                 (id INTEGER PRIMARY KEY, image_hash TEXT, metadata TEXT, analysis TEXT)''')
+    
     # Check if the image_hash column exists
     c.execute("PRAGMA table_info(images)")
     columns = [column[1] for column in c.fetchall()]
@@ -22,14 +26,9 @@ def setup_database():
     if 'image_hash' not in columns:
         # Add the image_hash column
         c.execute("ALTER TABLE images ADD COLUMN image_hash TEXT")
-        conn.commit()
         st.success("Database schema updated successfully!")
     
-    # Ensure the table has the correct schema
-    c.execute('''CREATE TABLE IF NOT EXISTS images
-                 (id INTEGER PRIMARY KEY, image_hash TEXT, metadata TEXT, analysis TEXT)''')
     conn.commit()
-    
     return conn, c
 
 # Set up database connection and cursor
@@ -68,11 +67,10 @@ def analyze_image_with_claude(image_base64, metadata):
     Analyze the following image and provide a detailed description. 
     Consider the following aspects:
     1. Main subject(s) of the image
-    2. Any pop-culture references or recognizable figures 
+    2. Colors and overall mood
     3. Composition and framing
-    4. Colors and overall mood
-    5. Any text visible in the image 
-    6. Notable objects or background elements
+    4. Any text visible in the image
+    5. Notable objects or background elements
 
     Additional context from metadata:
     - Camera: {metadata['make']} {metadata['model']}
@@ -162,7 +160,7 @@ def display_analysis_card(image, analysis, image_hash):
                         os.remove(audio_file_path)
 
 def main():
-    st.title("AI Image Analysis with TTS")
+    st.title("Image Analysis with Claude and TTS")
 
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
     if uploaded_file is not None:
