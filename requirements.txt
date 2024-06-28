@@ -1,11 +1,6 @@
 streamlit
 anthropic
 openai
-io
-sqlite3
-base64
+Pillow
 exif
-tempfile
-os
-hashlib
 requests
