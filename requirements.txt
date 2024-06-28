@@ -1,7 +1,6 @@
 streamlit
 anthropic
 openai
-PIL
 io
 sqlite3
 base64
