@@ -11,6 +11,14 @@ import os
 import hashlib
 import requests
 
+# Set page configuration
+st.set_page_config(
+    page_title="AI Image Analysis with TTS",
+    page_icon="🔥",
+    layout="centered",
+    initial_sidebar_state="auto"
+)
+    
 # Database setup and migration
 def setup_database():
     conn = sqlite3.connect('image_analysis.db')
@@ -264,13 +272,6 @@ def process_image(image, source_type):
             st.write(analysis)
 
 def main():
-    # Set page configuration
-    st.set_page_config(
-        page_title="AI Image Analysis with TTS",
-        page_icon="🔥",
-        layout="centered",
-        initial_sidebar_state="auto"
-    )
     st.title("AI Image Analysis with TTS")
 
     # Create tabs for upload and URL input
