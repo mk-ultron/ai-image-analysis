@@ -9,6 +9,7 @@ from exif import Image as ExifImage
 import tempfile
 import os
 import hashlib
+import requests
 
 # Database setup and migration
 def setup_database():
@@ -67,17 +68,19 @@ def analyze_image_with_claude(image_base64, metadata):
     Analyze the following image and provide a detailed description. 
     Consider the following aspects:
     1. Main subject(s) of the image
-    2. Colors and overall mood
-    3. Composition and framing
-    4. Any text visible in the image
-    5. Notable objects or background elements
+    2. Any pop culture references or recognizable figures?
+    3. What text is visible in the image, and what can you infer about the image from it? 
+    4. Composition and framing 
+    5. Colors and overall mood 
+    6. Notable objects or background elements
+    7. What is the style of the image (e.g., realism, abstract, impressionism)
 
     Additional context from metadata:
     - Camera: {metadata['make']} {metadata['model']}
     - Date taken: {metadata['datetime']}
     - GPS coordinates: {metadata['gps_latitude']}, {metadata['gps_longitude']}
 
-    Provide a comprehensive analysis in about 100-150 words.
+    Provide a comprehensive analysis in about 100-300 words.
     """
 
     response = anthropic_client.messages.create(
@@ -159,43 +162,71 @@ def display_analysis_card(image, analysis, image_hash):
                     if 'audio_file_path' in locals():
                         os.remove(audio_file_path)
 
+def load_image_from_url(url):
+    response = requests.get(url)
+    image = Image.open(io.BytesIO(response.content))
+    return image
+
 def main():
-    st.title("Image Analysis with Claude and TTS")
+    # Set page configuration
+    st.set_page_config(
+        page_title="AI Image Analysis with TTS",
+        page_icon="🔥",
+        layout="centered",
+        initial_sidebar_state="auto"
+    )
+    st.title("AI Image Analysis with TTS")
 
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        resized_image = resize_image(image)
-        
-        # Get image hash
-        image_bytes = io.BytesIO()
-        resized_image.save(image_bytes, format="JPEG")
-        image_bytes = image_bytes.getvalue()
-        image_hash = get_image_hash(image_bytes)
+    # Create tabs for upload and URL input
+    tab1, tab2 = st.tabs(["Upload Image", "Enter Image URL"])
 
-        st.image(resized_image, caption='Uploaded Image (Resized)', use_column_width=True)
+    with tab1:
+        uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            process_image(image)
 
-        if st.button("Analyze Image"):
-            with st.spinner("Analyzing image..."):
-                metadata = extract_metadata(image_bytes)
-                img_base64 = base64.b64encode(image_bytes).decode('utf-8')
-                analysis = analyze_image_with_claude(img_base64, metadata)
-
-                # Save to session state
-                st.session_state.analyzed_images.insert(0, {
-                    'image': resized_image,
-                    'analysis': analysis,
-                    'image_hash': image_hash
-                })
-
-                # Save to database
-                c.execute("INSERT INTO images (image_hash, metadata, analysis) VALUES (?, ?, ?)",
-                          (image_hash, str(metadata), analysis))
-                conn.commit()
+    with tab2:
+        url = st.text_input("Enter the URL of an image:")
+        if url:
+            try:
+                image = load_image_from_url(url)
+                process_image(image)
+            except Exception as e:
+                st.error(f"Error loading image from URL: {str(e)}")
 
     # Display all analyzed images
     for data in st.session_state.analyzed_images:
         display_analysis_card(data['image'], data['analysis'], data['image_hash'])
+
+def process_image(image):
+    resized_image = resize_image(image)
+    
+    # Get image hash
+    image_bytes = io.BytesIO()
+    resized_image.save(image_bytes, format="JPEG")
+    image_bytes = image_bytes.getvalue()
+    image_hash = get_image_hash(image_bytes)
+
+    st.image(resized_image, caption='Processed Image (Resized)', use_column_width=True)
+
+    if st.button("Analyze Image"):
+        with st.spinner("Analyzing image..."):
+            metadata = extract_metadata(image_bytes)
+            img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            analysis = analyze_image_with_claude(img_base64, metadata)
+
+            # Save to session state
+            st.session_state.analyzed_images.insert(0, {
+                'image': resized_image,
+                'analysis': analysis,
+                'image_hash': image_hash
+            })
+
+            # Save to database
+            c.execute("INSERT INTO images (image_hash, metadata, analysis) VALUES (?, ?, ?)",
+                      (image_hash, str(metadata), analysis))
+            conn.commit()
 
 if __name__ == "__main__":
     main()
